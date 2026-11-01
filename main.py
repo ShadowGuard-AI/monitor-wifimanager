@@ -27,6 +27,8 @@ def detect_encryption(iwlist_output):
     markers are each tested, and a network is labelled open only when
     no marker is present at all.
     """
+    # I test in this order on purpose. WPA is a substring of both WPA2 and
+    # WPA3, so checking plain WPA first would mislabel every newer network.
     if "WPA3" in iwlist_output:
         return "WPA3"
     if "WPA2" in iwlist_output:
@@ -45,6 +47,8 @@ def scan_encryption(interface):
     scan fails or returns nothing. The scan runs without sudo first;
     sudo is tried only as a fallback when the plain scan fails.
     """
+    # An empty scan is not a success here: output that strips to nothing
+    # falls through and the sudo form gets its turn before I give up.
     for command in (["iwlist", interface, "scanning"],
                     ["sudo", "iwlist", interface, "scanning"]):
         try:
@@ -88,6 +92,10 @@ def get_wifi_info(interface, previous_info=None):
     signal_level_match = re.search(r'Signal level=(-\d+) dBm', iwconfig_output)
     signal_level = signal_level_match.group(1) if signal_level_match else "N/A"
 
+    # Known flaw in this fallback: the text between the quality figure and
+    # dBm also holds the level, and the first number I pull from it is the
+    # link quality numerator, not a dBm value. I keep it only because some
+    # drivers omit the plain Signal level field entirely.
     if signal_level == "N/A":
         signal_level_match = re.search(r'Signal quality=.*?dBm', iwconfig_output)
         if signal_level_match:
@@ -158,9 +166,16 @@ def main():
 
                     logging.info(log_message)
 
+                    # If this append raises, the outer handler ends the monitor with exit
+                    # 1. A full disk or a deleted log directory kills a run that was
+                    # otherwise reading the interface fine.
                     with open(args.log_file, "a") as f:
                         f.write(log_message + "\n")
 
+                    # I replace previous_info only here, after a change was logged. A quiet
+                    # cycle keeps the last logged record as the comparison point, so the
+                    # scan decision above is made against what I last wrote, not what I
+                    # last saw.
                     previous_info = wifi_info
             else:
                 logging.warning("Could not retrieve Wi-Fi information.")
